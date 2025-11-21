@@ -46,7 +46,8 @@ class MemberDatabase:
                     amount REAL NOT NULL,
                     role TEXT CHECK(role IN ('Admin', 'User')) NOT NULL DEFAULT 'User',
                     password_hash TEXT,
-                    password_salt TEXT
+                    password_salt TEXT,
+                    phone TEXT
                 );
                 """
             )
@@ -58,7 +59,40 @@ class MemberDatabase:
                 );
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS announcements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    image_path TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rules_and_regulations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
             self._connection.commit()
+            self._ensure_member_columns()
+
+    def _ensure_member_columns(self) -> None:
+        """Ensure optional columns exist for older databases."""
+        cursor = self._connection.cursor()
+        cursor.execute("PRAGMA table_info(members)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "phone" not in columns:
+            cursor.execute("ALTER TABLE members ADD COLUMN phone TEXT")
+        if "last_payment_date" not in columns:
+            cursor.execute("ALTER TABLE members ADD COLUMN last_payment_date TIMESTAMP")
+        self._connection.commit()
 
     # ------------------------------------------------------------------
     # Utility helpers
@@ -72,7 +106,7 @@ class MemberDatabase:
 
     def _validate_amount(self, amount: float) -> None:
         if amount < 250:
-            raise ValueError("Minimum payment amount is 250")
+            raise ValueError("Minimum payment amount is ₨250")
 
     @staticmethod
     def _sanitize_record(record: Optional[Dict[str, Any] | sqlite3.Row]) -> Optional[Dict[str, Any]]:
@@ -103,6 +137,7 @@ class MemberDatabase:
         amount: float,
         role: str = "User",
         password: Optional[str] = None,
+        phone: Optional[str] = None,
     ) -> Dict[str, Any]:
         self._validate_amount(amount)
         password_hash: Optional[str] = None
@@ -115,22 +150,41 @@ class MemberDatabase:
         try:
             self._execute(
                 """
-                INSERT INTO members (member_id, name, payment_status, amount, role, password_hash, password_salt)
-                VALUES (?, ?, 'Unpaid', ?, ?, ?, ?)
+                INSERT INTO members (member_id, name, payment_status, amount, role, password_hash, password_salt, phone)
+                VALUES (?, ?, 'Unpaid', ?, ?, ?, ?, ?)
                 """,
-                (member_id, name, amount, role, password_hash, password_salt),
+                (member_id, name, amount, role, password_hash, password_salt, phone),
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"Member with id '{member_id}' already exists") from exc
 
         return self.get_member(member_id)
 
+        if payment_status:
+            if payment_status not in {"Paid", "Unpaid"}:
+                raise ValueError("payment_status must be 'Paid' or 'Unpaid'")
+            fields["payment_status"] = payment_status
+        if phone is not None:
+            fields["phone"] = phone
+        
+        # Allow passing extra fields like last_payment_date via kwargs if needed, 
+        # but for now we'll just handle it if passed in the fields dict by internal callers
+        # (mark_payment calls update_member with **kwargs)
+        # We need to update the signature or just handle **kwargs in update_member if we want to be clean,
+        # but since mark_payment calls update_member, we need to make sure update_member accepts it.
+        # Let's modify update_member signature to accept **kwargs for flexibility.
+        pass # Placeholder to keep context, actual change below in separate edit if needed.
+        # Actually, mark_payment calls update_member(..., **update_kwargs). 
+        # update_member signature is fixed. We need to add **kwargs to update_member or add the param.
+        
     def update_member(
         self,
         member_id: str,
         name: Optional[str] = None,
         amount: Optional[float] = None,
         payment_status: Optional[str] = None,
+        phone: Optional[str] = None,
+        last_payment_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         if name:
@@ -142,6 +196,10 @@ class MemberDatabase:
             if payment_status not in {"Paid", "Unpaid"}:
                 raise ValueError("payment_status must be 'Paid' or 'Unpaid'")
             fields["payment_status"] = payment_status
+        if phone is not None:
+            fields["phone"] = phone
+        if last_payment_date is not None:
+            fields["last_payment_date"] = last_payment_date
 
         if not fields:
             raise ValueError("No updates provided")
@@ -176,7 +234,12 @@ class MemberDatabase:
     def mark_payment(self, member_id: str, payment_status: str, amount: Optional[float] = None) -> Dict[str, Any]:
         if payment_status not in {"Paid", "Unpaid"}:
             raise ValueError("payment_status must be 'Paid' or 'Unpaid'")
+        
         update_kwargs: Dict[str, Any] = {"payment_status": payment_status}
+        if payment_status == "Paid":
+            from datetime import datetime
+            update_kwargs["last_payment_date"] = datetime.now().isoformat()
+            
         if amount is not None:
             self._validate_amount(amount)
             update_kwargs["amount"] = amount
@@ -208,20 +271,221 @@ class MemberDatabase:
         expected_hash, _ = self._hash_password(password, salt=password_salt)
         return expected_hash == password_hash
 
+    def check_and_reset_monthly_payments(self) -> int:
+        """
+        Check if it's the 28th of the month (or later).
+        If so, and we haven't reset payments for this month yet,
+        reset all 'Paid' members to 'Unpaid'.
+        """
+        from datetime import datetime
+        
+        now = datetime.now()
+        current_month_key = f"reset_{now.year}_{now.month}"
+        
+        # Only proceed if it's the 28th or later
+        if now.day < 28:
+            return 0
+            
+        with self._lock:
+            # Check if already run for this month
+            cursor = self._execute(
+                "SELECT value FROM metadata WHERE key = ?", 
+                (current_month_key,)
+            )
+            if cursor.fetchone():
+                return 0
+            
+            # Reset all Paid members to Unpaid
+            # We don't need to check last_payment_date anymore, just reset everyone
+            cursor = self._execute(
+                "UPDATE members SET payment_status = 'Unpaid' WHERE payment_status = 'Paid'"
+            )
+            count = cursor.rowcount
+            
+            # Mark as done for this month
+            self._execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                (current_month_key, now.isoformat())
+            )
+            
+            return count
+
     def ensure_default_admin(self) -> None:
+        """Ensure default admin exists with known password. Reset password if admin exists."""
+        default_password = "admin@250"
+        default_admin_id = "admin"
+        
+        # Check if default admin exists
+        try:
+            existing_admin = self.get_member(default_admin_id)
+            # Admin exists, check if it's an Admin role and reset password
+            cursor = self._execute(
+                "SELECT role FROM members WHERE member_id = ?",
+                (default_admin_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0] == "Admin":
+                # Reset password for existing admin
+                password_hash, password_salt = self._hash_password(default_password)
+                self._execute(
+                    """
+                    UPDATE members 
+                    SET password_hash = ?, password_salt = ?, role = 'Admin'
+                    WHERE member_id = ?
+                    """,
+                    (password_hash, password_salt, default_admin_id),
+                )
+                return
+        except ValueError:
+            # Admin doesn't exist, create it
+            pass
+        
+        # Check if any admin exists
         cursor = self._execute("SELECT COUNT(*) as count FROM members WHERE role = 'Admin'")
         row = cursor.fetchone()
         if row["count"] == 0:
             # Provide a default admin for first-run experience
-            default_password = "admin@250"
             password_hash, password_salt = self._hash_password(default_password)
-            self._execute(
-                """
-                INSERT INTO members (member_id, name, payment_status, amount, role, password_hash, password_salt)
-                VALUES ('admin', 'Primary Admin', 'Paid', 250, 'Admin', ?, ?)
-                """,
-                (password_hash, password_salt),
-            )
+            try:
+                self._execute(
+                    """
+                    INSERT INTO members (member_id, name, payment_status, amount, role, password_hash, password_salt)
+                    VALUES (?, 'Primary Admin', 'Paid', 250, 'Admin', ?, ?)
+                    """,
+                    (default_admin_id, password_hash, password_salt),
+                )
+            except Exception:
+                # Admin might have been created by another process, try to update password
+                password_hash, password_salt = self._hash_password(default_password)
+                self._execute(
+                    """
+                    UPDATE members 
+                    SET password_hash = ?, password_salt = ?, role = 'Admin', name = 'Primary Admin'
+                    WHERE member_id = ?
+                    """,
+                    (password_hash, password_salt, default_admin_id),
+                )
+
+    # ------------------------------------------------------------------
+    # Announcements CRUD operations
+    # ------------------------------------------------------------------
+
+    def add_announcement(self, title: str, text: str, image_path: Optional[str] = None) -> Dict[str, Any]:
+        """Add a new announcement."""
+        cursor = self._execute(
+            """
+            INSERT INTO announcements (title, text, image_path)
+            VALUES (?, ?, ?)
+            """,
+            (title, text, image_path),
+        )
+        announcement_id = cursor.lastrowid
+        return self.get_announcement(announcement_id)
+
+    def get_announcement(self, announcement_id: int) -> Dict[str, Any]:
+        """Get a single announcement by ID."""
+        cursor = self._execute("SELECT * FROM announcements WHERE id = ?", (announcement_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Announcement with id '{announcement_id}' not found")
+        return dict(row)
+
+    def list_announcements(self) -> List[Dict[str, Any]]:
+        """List all announcements, most recent first."""
+        cursor = self._execute("SELECT * FROM announcements ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_announcement(
+        self, announcement_id: int, title: Optional[str] = None, 
+        text: Optional[str] = None, image_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Update an announcement."""
+        fields: Dict[str, Any] = {}
+        if title:
+            fields["title"] = title
+        if text is not None:
+            fields["text"] = text
+        if image_path is not None:
+            fields["image_path"] = image_path
+
+        if not fields:
+            raise ValueError("No updates provided")
+
+        assignments = ", ".join(f"{column} = ?" for column in fields)
+        params = list(fields.values()) + [announcement_id]
+        cursor = self._execute(
+            f"UPDATE announcements SET {assignments} WHERE id = ?", params
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Announcement '{announcement_id}' not found")
+        return self.get_announcement(announcement_id)
+
+    def delete_announcement(self, announcement_id: int) -> Dict[str, Any]:
+        """Delete an announcement."""
+        announcement = self.get_announcement(announcement_id)
+        cursor = self._execute("DELETE FROM announcements WHERE id = ?", (announcement_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"Announcement '{announcement_id}' not found")
+        return announcement
+
+    # ------------------------------------------------------------------
+    # Rules and Regulations CRUD operations
+    # ------------------------------------------------------------------
+
+    def add_rule(self, title: str, text: str) -> Dict[str, Any]:
+        """Add a new rule or regulation."""
+        cursor = self._execute(
+            """
+            INSERT INTO rules_and_regulations (title, text)
+            VALUES (?, ?)
+            """,
+            (title, text),
+        )
+        rule_id = cursor.lastrowid
+        return self.get_rule(rule_id)
+
+    def get_rule(self, rule_id: int) -> Dict[str, Any]:
+        """Get a single rule by ID."""
+        cursor = self._execute("SELECT * FROM rules_and_regulations WHERE id = ?", (rule_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Rule with id '{rule_id}' not found")
+        return dict(row)
+
+    def list_rules(self) -> List[Dict[str, Any]]:
+        """List all rules and regulations, most recent first."""
+        cursor = self._execute("SELECT * FROM rules_and_regulations ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_rule(
+        self, rule_id: int, title: Optional[str] = None, text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Update a rule or regulation."""
+        fields: Dict[str, Any] = {}
+        if title:
+            fields["title"] = title
+        if text is not None:
+            fields["text"] = text
+
+        if not fields:
+            raise ValueError("No updates provided")
+
+        assignments = ", ".join(f"{column} = ?" for column in fields)
+        params = list(fields.values()) + [rule_id]
+        cursor = self._execute(
+            f"UPDATE rules_and_regulations SET {assignments} WHERE id = ?", params
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Rule '{rule_id}' not found")
+        return self.get_rule(rule_id)
+
+    def delete_rule(self, rule_id: int) -> Dict[str, Any]:
+        """Delete a rule or regulation."""
+        rule = self.get_rule(rule_id)
+        cursor = self._execute("DELETE FROM rules_and_regulations WHERE id = ?", (rule_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"Rule '{rule_id}' not found")
+        return rule
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +602,10 @@ class ToolRegistry:
                     "amount": {"type": "number"},
                     "role": {"type": "string", "enum": ["Admin", "User"], "default": "User"},
                     "password": {"type": "string"},
+                    "phone": {
+                        "type": "string",
+                        "description": "Pakistani mobile number formatted as +923XXXXXXXXX or 03XXXXXXXXX",
+                    },
                 },
                 "required": ["member_id", "name", "amount"],
             },
@@ -350,6 +618,7 @@ class ToolRegistry:
                 amount=float(payload["amount"]),
                 role=payload.get("role", "User"),
                 password=payload.get("password"),
+                phone=payload.get("phone"),
             )
             result = ToolResult(
                 name="add_member",
@@ -370,6 +639,10 @@ class ToolRegistry:
                     "name": {"type": "string"},
                     "amount": {"type": "number"},
                     "payment_status": {"type": "string", "enum": ["Paid", "Unpaid"]},
+                    "phone": {
+                        "type": "string",
+                        "description": "Pakistani mobile number formatted as +923XXXXXXXXX or 03XXXXXXXXX",
+                    },
                 },
                 "required": ["member_id"],
             },
@@ -381,6 +654,7 @@ class ToolRegistry:
                 name=payload.get("name"),
                 amount=float(payload["amount"]) if payload.get("amount") is not None else None,
                 payment_status=payload.get("payment_status"),
+                phone=payload.get("phone"),
             )
             result = ToolResult(
                 name="update_member",
@@ -511,6 +785,62 @@ class ToolRegistry:
             )
             self._tracer.record("authenticate_admin", payload, result)
             return result
+
+        @self.register(
+            name="search_web",
+            description="Search the web for information using Tavily API. Useful for finding current information, facts, or answers to questions.",
+            schema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query to look up"},
+                    "max_results": {"type": "integer", "description": "Maximum number of results to return", "default": 5},
+                },
+                "required": ["query"],
+            },
+        )
+        def search_web(context: ToolContext, **payload: Any) -> ToolResult:
+            try:
+                from tavily import TavilyClient
+                
+                api_key = os.getenv("TAVILY_API_KEY")
+                if not api_key:
+                    raise ToolExecutionError("TAVILY_API_KEY environment variable is not set. Please set it in your .env file.")
+                
+                client = TavilyClient(api_key=api_key)
+                query = payload["query"]
+                max_results = payload.get("max_results", 5)
+                
+                # Perform the search with basic answer included
+                response = client.search(query=query, max_results=max_results, include_answer="basic")
+                
+                # Convert response to dict - Tavily returns a dict-like object
+                # Use json.loads(json.dumps()) to ensure proper serialization
+                if isinstance(response, dict):
+                    response_data = response
+                else:
+                    # If it's an object, convert to dict via JSON serialization
+                    response_str = json.dumps(response, default=str)
+                    response_data = json.loads(response_str)
+                
+                num_results = len(response_data.get("results", []))
+                answer = response_data.get("answer", "")
+                
+                message = f"Found {num_results} results for query: {query}"
+                if answer:
+                    message += f". Summary: {answer[:200]}..."
+                
+                result = ToolResult(
+                    name="search_web",
+                    status="success",
+                    message=message,
+                    data=response_data,
+                )
+                self._tracer.record("search_web", payload, result)
+                return result
+            except ImportError:
+                raise ToolExecutionError("tavily-python package is not installed. Please install it with: pip install tavily-python")
+            except Exception as exc:
+                raise ToolExecutionError(f"Search failed: {str(exc)}")
 
 
 @dataclass

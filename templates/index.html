@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHAHENSHA GROUP | Accountant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#02040a',
+                        card: '#090c14',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="antialiased text-slate-300 selection:bg-blue-500/30">
+
+    <!-- Background Watermark -->
+    <div class="fixed inset-0 flex items-center justify-center pointer-events-none z-0 overflow-hidden">
+        <img src="/static/img/logo.png" alt="" class="w-[80vw] md:w-[40vw] opacity-[0.03] animate-pulse-slow select-none">
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center login-bg p-4">
+        <div class="w-full max-w-4xl grid md:grid-cols-2 gap-8 items-center animate-fade-in">
+            <div class="space-y-6 text-center md:text-left">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-yellow-500/20 bg-yellow-500/5 text-yellow-500 text-xs font-medium tracking-wider uppercase">
+                    <span class="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
+                    Premium Financial Services
+                </div>
+                <img src="/static/img/logo.png" alt="Shahensha Group Logo" class="w-24 h-24 mx-auto md:mx-0 mb-4 object-contain drop-shadow-2xl">
+                <h1 class="text-5xl md:text-6xl font-bold text-white tracking-tight">
+                    SHAHENSHA <br> <span class="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">GROUP</span>
+                </h1>
+                <p class="text-lg text-slate-400 max-w-md mx-auto md:mx-0">
+                    Advanced financial management and member tracking system powered by Gemini AI.
+                </p>
+            </div>
+
+            <div class="glass-panel rounded-2xl p-8 space-y-8 shadow-2xl">
+                <div class="space-y-2">
+                    <h2 class="text-2xl font-semibold text-white">Welcome Back</h2>
+                    <p class="text-sm text-slate-400">Select your access level to continue.</p>
+                </div>
+
+                <div class="grid gap-4">
+                    <button id="login-user" class="group relative flex items-center gap-4 p-4 rounded-xl glass-input hover:bg-white/5 transition-all text-left">
+                        <div class="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                        </div>
+                        <div>
+                            <h3 class="font-medium text-white">Member Access</h3>
+                            <p class="text-xs text-slate-500">View your status and group insights</p>
+                        </div>
+                        <div class="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-blue-500">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </div>
+                    </button>
+
+                    <div class="relative">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-white/10"></div>
+                        </div>
+                        <div class="relative flex justify-center text-xs uppercase">
+                            <span class="bg-[#090c14] px-2 text-slate-500">Or Admin Access</span>
+                        </div>
+                    </div>
+
+                    <form id="admin-login-form" class="space-y-4">
+                        <div class="space-y-1">
+                            <label class="text-xs font-medium text-slate-400 uppercase tracking-wide">Admin ID</label>
+                            <input id="admin-login-id" type="text" class="w-full px-4 py-3 rounded-xl glass-input" placeholder="Enter Admin ID" required>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-medium text-slate-400 uppercase tracking-wide">Password</label>
+                            <input id="admin-login-password" type="password" class="w-full px-4 py-3 rounded-xl glass-input" placeholder="••••••••" required>
+                        </div>
+                        <button type="submit" class="w-full btn-primary py-3.5 rounded-xl font-semibold text-sm tracking-wide">
+                            Secure Login
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App Layout -->
+    <div id="app-layout" class="hidden min-h-screen flex flex-col md:flex-row relative z-10">
+        
+        <!-- Sidebar -->
+        <aside class="w-full md:w-72 bg-[#05070e] border-r border-white/5 flex flex-col fixed md:relative z-40 h-full hidden md:flex" id="sidebar">
+            <div class="p-6 border-b border-white/5">
+                <div class="flex items-center gap-3">
+                    <img src="/static/img/logo.png" alt="Shahensha Group Logo" class="w-10 h-10 rounded-lg object-contain">
+                    <div>
+                        <h2 class="font-bold text-white leading-tight">SHAHENSHA</h2>
+                        <p class="text-xs text-yellow-500 font-medium tracking-wider">GROUP</p>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="flex-1 p-4 space-y-1 overflow-y-auto">
+                <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors active" data-section="dashboard">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                    Dashboard
+                </button>
+                <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors" data-section="members">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    Members Directory
+                </button>
+                <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors" data-section="announcements">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
+                    Announcements
+                </button>
+                <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors" data-section="rules">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Rules & Regulations
+                </button>
+                <button class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-colors" data-section="settings">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    Settings
+                </button>
+            </nav>
+
+            <div class="p-4 border-t border-white/5">
+                <button id="logout" class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    Sign Out
+                </button>
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <main class="flex-1 flex flex-col h-screen overflow-hidden relative">
+            <!-- Mobile Header -->
+            <header class="md:hidden bg-[#05070e] border-b border-white/5 p-4 flex items-center justify-between z-30">
+                <div class="flex items-center gap-2">
+                    <img src="/static/img/logo.png" alt="Logo" class="w-8 h-8 rounded object-contain">
+                    <span class="font-bold text-white">SHAHENSHA</span>
+                </div>
+                <button id="mobile-menu-btn" class="text-slate-400">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+            </header>
+
+            <!-- Top Bar -->
+            <div class="hidden md:flex items-center justify-between px-8 py-6 border-b border-white/5 bg-[#02040a]/80 backdrop-blur-md sticky top-0 z-20">
+                <div>
+                    <h1 class="text-2xl font-bold text-white" id="page-title">Dashboard</h1>
+                    <p class="text-sm text-slate-500">Overview of financial activities</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium" id="role-badge">
+                        Guest
+                    </div>
+                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+                
+                <!-- Dashboard Section -->
+                <section id="dashboard-section" class="space-y-8 animate-fade-in">
+                    <!-- Metrics -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="glass-panel p-6 rounded-2xl card-hover">
+                            <div class="flex items-start justify-between mb-4">
+                                <div>
+                                    <p class="text-sm text-slate-400 font-medium">Total Members</p>
+                                    <h3 class="text-3xl font-bold text-white mt-1" id="metric-members">0</h3>
+                                </div>
+                                <div class="p-2 rounded-lg bg-blue-500/10 text-blue-500">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-blue-500 h-full rounded-full" style="width: 100%"></div>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel p-6 rounded-2xl card-hover">
+                            <div class="flex items-start justify-between mb-4">
+                                <div>
+                                    <p class="text-sm text-slate-400 font-medium">Paid Members</p>
+                                    <h3 class="text-3xl font-bold text-white mt-1" id="metric-paid">0</h3>
+                                </div>
+                                <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-emerald-500 h-full rounded-full" id="bar-paid" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel p-6 rounded-2xl card-hover">
+                            <div class="flex items-start justify-between mb-4">
+                                <div>
+                                    <p class="text-sm text-slate-400 font-medium">Pending Payments</p>
+                                    <h3 class="text-3xl font-bold text-white mt-1" id="metric-unpaid">0</h3>
+                                </div>
+                                <div class="p-2 rounded-lg bg-rose-500/10 text-rose-500">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-rose-500 h-full rounded-full" id="bar-unpaid" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity / Member Grid -->
+                    <div class="space-y-6">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-xl font-bold text-white">Member Ledger</h2>
+                            <div class="flex gap-2">
+                                <button class="px-4 py-2 rounded-lg text-xs font-medium bg-white/5 hover:bg-white/10 transition-colors border border-white/5 text-white" data-filter="all">All</button>
+                                <button class="px-4 py-2 rounded-lg text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/20" data-filter="Paid">Paid</button>
+                                <button class="px-4 py-2 rounded-lg text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/20" data-filter="Unpaid">Unpaid</button>
+                                <button id="open-add-member" class="hidden ml-2 btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                    Add Member
+                                </button>
+                            </div>
+                        </div>
+                        <div id="members-grid" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                            <!-- Member Cards Injected Here -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Members Directory Section -->
+                <section id="members-section" class="hidden animate-fade-in space-y-6">
+                    <div class="glass-panel rounded-2xl overflow-hidden">
+                        <div class="p-6 border-b border-white/5">
+                            <h2 class="text-xl font-bold text-white">Full Directory</h2>
+                        </div>
+                        <div id="members-table" class="overflow-x-auto">
+                            <!-- Table Injected Here -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Announcements Section -->
+                <section id="announcements-section" class="hidden animate-fade-in space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-bold text-white">Announcements</h2>
+                        <button id="open-add-announcement" class="hidden btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide">New Announcement</button>
+                    </div>
+                    <div id="announcements-list" class="space-y-6">
+                        <!-- Announcements Injected Here -->
+                    </div>
+                    <div id="announcements-empty" class="hidden text-center py-12">
+                        <div class="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-500">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                        </div>
+                        <p class="text-slate-400">No announcements posted yet.</p>
+                    </div>
+                </section>
+
+                <!-- Rules Section -->
+                <section id="rules-section" class="hidden animate-fade-in space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-bold text-white">Rules & Regulations</h2>
+                        <button id="open-add-rule" class="hidden btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide">New Rule</button>
+                    </div>
+                    <div id="rules-list" class="space-y-4">
+                        <!-- Rules Injected Here -->
+                    </div>
+                    <div id="rules-empty" class="hidden text-center py-12">
+                        <p class="text-slate-400">No rules defined yet.</p>
+                    </div>
+                </section>
+
+                <!-- Settings Section -->
+                <section id="settings-section" class="hidden animate-fade-in space-y-6">
+                    <div class="glass-panel rounded-2xl p-8 max-w-2xl">
+                        <h2 class="text-xl font-bold text-white mb-6">Security Settings</h2>
+                        <form id="password-change-form" class="space-y-6 hidden">
+                            <div class="grid gap-6">
+                                <div class="space-y-2">
+                                    <label class="text-sm font-medium text-slate-400">Confirm Admin ID</label>
+                                    <input id="settings-admin-id" type="text" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-sm font-medium text-slate-400">New Password</label>
+                                    <input id="settings-new-password" type="password" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary px-6 py-3 rounded-xl font-semibold text-sm w-full md:w-auto">Update Password</button>
+                        </form>
+                        <div id="settings-locked" class="text-center py-8">
+                            <svg class="w-12 h-12 text-slate-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                            <p class="text-slate-400">You must be logged in as an Admin to change settings.</p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- Add Member Modal -->
+    <div id="add-member-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="glass-panel w-full max-w-lg rounded-2xl p-6 space-y-6 animate-fade-in">
+            <div class="flex items-center justify-between">
+                <h3 class="text-xl font-bold text-white" id="member-modal-title">Add Member</h3>
+                <button id="close-add-member" class="text-slate-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="add-member-form" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-400 uppercase">ID</label>
+                        <input id="add-member-id" type="text" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-400 uppercase">Name</label>
+                        <input id="add-member-name" type="text" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-400 uppercase">Amount (₨)</label>
+                        <input id="add-member-amount" type="number" min="250" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-xs font-medium text-slate-400 uppercase">Role</label>
+                        <select id="add-member-role" class="w-full px-4 py-3 rounded-xl glass-input bg-[#090c14]">
+                            <option value="User">User</option>
+                            <option value="Admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Phone (Optional)</label>
+                    <input id="add-member-phone" type="tel" class="w-full px-4 py-3 rounded-xl glass-input" placeholder="+923...">
+                </div>
+                <div id="add-member-password" class="hidden space-y-1">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Admin Password</label>
+                    <input id="add-member-admin-password" type="password" class="w-full px-4 py-3 rounded-xl glass-input">
+                </div>
+                <button type="submit" class="w-full btn-primary py-3 rounded-xl font-semibold">Save Member</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Announcement Modal -->
+    <div id="add-announcement-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="glass-panel w-full max-w-xl rounded-2xl p-6 space-y-6 animate-fade-in max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between">
+                <h3 class="text-xl font-bold text-white" id="announcement-modal-title">New Announcement</h3>
+                <button id="close-add-announcement" class="text-slate-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="add-announcement-form" class="space-y-4">
+                <div class="space-y-1">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Title</label>
+                    <input id="announcement-title" type="text" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Content</label>
+                    <textarea id="announcement-text" rows="5" class="w-full px-4 py-3 rounded-xl glass-input" required></textarea>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Image (Optional)</label>
+                    <input id="announcement-image-input" type="file" accept="image/*" class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-500/10 file:text-blue-400 hover:file:bg-blue-500/20">
+                    <div id="announcement-image-preview" class="hidden mt-2 relative group">
+                        <img id="announcement-preview-img" src="" class="w-full h-48 object-cover rounded-xl border border-white/10">
+                        <button type="button" id="remove-announcement-image" class="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                    <p id="announcement-upload-status" class="text-xs text-blue-400 hidden animate-pulse">Uploading...</p>
+                </div>
+                <input type="hidden" id="announcement-id">
+                <input type="hidden" id="announcement-image-path">
+                <button type="submit" class="w-full btn-primary py-3 rounded-xl font-semibold">Post Announcement</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Rule Modal -->
+    <div id="add-rule-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="glass-panel w-full max-w-xl rounded-2xl p-6 space-y-6 animate-fade-in">
+            <div class="flex items-center justify-between">
+                <h3 class="text-xl font-bold text-white" id="rule-modal-title">New Rule</h3>
+                <button id="close-add-rule" class="text-slate-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <form id="add-rule-form" class="space-y-4">
+                <div class="space-y-1">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Title</label>
+                    <input id="rule-title" type="text" class="w-full px-4 py-3 rounded-xl glass-input" required>
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs font-medium text-slate-400 uppercase">Description</label>
+                    <textarea id="rule-text" rows="8" class="w-full px-4 py-3 rounded-xl glass-input" required></textarea>
+                </div>
+                <input type="hidden" id="rule-id">
+                <button type="submit" class="w-full btn-primary py-3 rounded-xl font-semibold">Save Rule</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Chatbot -->
+    <button id="chatbot-launcher" class="chatbot-launcher">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+    </button>
+
+    <div id="chatbot-panel" class="chatbot-panel">
+        <header class="chatbot-header">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="font-bold text-white text-sm">AI Assistant</h3>
+                    <p class="text-xs text-slate-400">Online</p>
+                </div>
+            </div>
+            <button id="chatbot-close" class="text-slate-400 hover:text-white">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </header>
+        <div id="chatbot-messages" class="chatbot-messages"></div>
+        <form id="chatbot-form" class="p-4 border-t border-white/5 bg-[#090c14]">
+            <div class="relative">
+                <input id="chatbot-input" type="text" class="w-full pl-4 pr-12 py-3 rounded-xl glass-input text-sm" placeholder="Ask about members or payments...">
+                <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-500 hover:text-blue-400 disabled:opacity-50 chatbot-send">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

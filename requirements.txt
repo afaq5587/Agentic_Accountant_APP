@@ -2,5 +2,8 @@ fastapi
 uvicorn[standard]
 google-generativeai
 openai-agents
+openai>=1.0.0
 pydantic
 python-dotenv
+tavily-python
+jinja2
