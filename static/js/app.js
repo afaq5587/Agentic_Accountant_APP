@@ -482,6 +482,46 @@ logoutBtn.addEventListener('click', () => {
   showToast('info', 'Signed out successfully.');
 });
 
+// Mobile Menu & Backdrop
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const sidebar = document.getElementById('sidebar');
+let backdrop = null;
+
+function closeMobileSidebar() {
+  if (sidebar) {
+    sidebar.classList.remove('mobile-open');
+    // Ensure hidden is present if we are relying on it for default state
+    sidebar.classList.add('hidden');
+    
+    if (backdrop) {
+      backdrop.remove();
+      backdrop = null;
+    }
+  }
+}
+
+if (mobileMenuBtn && sidebar) {
+  mobileMenuBtn.addEventListener('click', () => {
+    const isOpen = sidebar.classList.contains('mobile-open');
+    
+    if (!isOpen) {
+      // Open sidebar
+      sidebar.classList.add('mobile-open');
+      sidebar.classList.remove('hidden'); // Remove hidden just in case, though !important in CSS overrides it
+      
+      // Create backdrop
+      if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.className = 'sidebar-backdrop';
+        document.body.appendChild(backdrop);
+        backdrop.addEventListener('click', closeMobileSidebar);
+      }
+    } else {
+      closeMobileSidebar();
+    }
+  });
+}
+
 // Navigation
 document.querySelectorAll('.nav-item').forEach((button) => {
   button.addEventListener('click', () => {
@@ -505,19 +545,13 @@ document.querySelectorAll('.nav-item').forEach((button) => {
       'settings': 'Settings'
     };
     document.getElementById('page-title').textContent = titleMap[section];
+
+    // Close mobile sidebar if open
+    if (window.innerWidth < 768) {
+      closeMobileSidebar();
+    }
   });
 });
-
-// Mobile Menu
-const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-const sidebar = document.getElementById('sidebar');
-if (mobileMenuBtn && sidebar) {
-  mobileMenuBtn.addEventListener('click', () => {
-    sidebar.classList.toggle('hidden');
-    sidebar.classList.toggle('absolute');
-    sidebar.classList.toggle('inset-0');
-  });
-}
 
 // Member Actions
 async function handleMemberCardAction(event) {

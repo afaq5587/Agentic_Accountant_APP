@@ -279,3 +279,98 @@ h1, h2, h3, h4, h5, h6 {
   position: relative;
   z-index: 10;
 }
+
+/* --- Mobile Optimizations --- */
+@media (max-width: 768px) {
+  /* Mobile Chatbot - Bottom Sheet */
+  .chatbot-panel {
+    width: 100%;
+    height: 80vh;
+    right: 0;
+    bottom: 0;
+    border-radius: 1.5rem 1.5rem 0 0;
+    transform-origin: bottom center;
+    max-width: 100%;
+  }
+  
+  .chatbot-launcher {
+    bottom: 1.5rem;
+    right: 1.5rem;
+  }
+
+  /* Responsive Table - Card View */
+  #members-table table, 
+  #members-table thead, 
+  #members-table tbody, 
+  #members-table th, 
+  #members-table td, 
+  #members-table tr { 
+    display: block; 
+  }
+  
+  #members-table thead tr { 
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+  
+  #members-table tr { 
+    margin-bottom: 1rem; 
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-subtle);
+    padding: 1rem;
+  }
+  
+  #members-table td { 
+    border: none;
+    position: relative;
+    padding-left: 50%; 
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    text-align: right;
+  }
+  
+  #members-table td:before { 
+    position: absolute;
+    left: 0;
+    width: 45%; 
+    padding-right: 10px; 
+    white-space: nowrap;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+  }
+  
+  /* Add labels for each column */
+  #members-table td:nth-of-type(1):before { content: "Member"; }
+  #members-table td:nth-of-type(2):before { content: "Role"; }
+  #members-table td:nth-of-type(3):before { content: "Phone"; }
+  #members-table td:nth-of-type(4):before { content: "Amount"; }
+  #members-table td:nth-of-type(5):before { content: "Status"; }
+}
+
+/* Sidebar Backdrop */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  z-index: 35; /* Below sidebar (40) */
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Robust Mobile Sidebar Toggle */
+@media (max-width: 768px) {
+  #sidebar.mobile-open {
+    display: flex !important;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+  }
+}

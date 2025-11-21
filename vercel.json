@@ -5,6 +5,12 @@
       "use": "@vercel/python"
     }
   ],
+  "crons": [
+    {
+      "path": "/api/cron/reset-payments",
+      "schedule": "0 0 * * *"
+    }
+  ],
   "routes": [
     {
       "src": "/(.*)",

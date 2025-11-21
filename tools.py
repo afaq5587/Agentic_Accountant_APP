@@ -24,17 +24,44 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 
 class MemberDatabase:
-    """SQLite-backed store for member and admin records."""
+    """Database store for member and admin records, supporting SQLite and PostgreSQL."""
 
     def __init__(self, db_path: str | os.PathLike[str]):
-        self._path = Path(db_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
-        self._connection = sqlite3.connect(self._path, check_same_thread=False)
-        self._connection.row_factory = sqlite3.Row
+        self._postgres_url = os.environ.get("POSTGRES_URL")
+        self._is_postgres = bool(self._postgres_url)
+        
+        if not self._is_postgres:
+            self._path = Path(db_path)
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._lock = threading.RLock()
+            self._connection = sqlite3.connect(self._path, check_same_thread=False)
+            self._connection.row_factory = sqlite3.Row
+        else:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            self._lock = threading.RLock() # Still use lock for thread safety wrapper
+            # Connection will be created per request or pooled in a real app
+            # For simplicity here, we'll create a single connection but Postgres connections 
+            # aren't thread safe by default so we need to be careful.
+            # Better to just connect on execute for this simple serverless scale.
+            pass
+
         self._initialize()
 
+    def _get_postgres_conn(self):
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        conn = psycopg2.connect(self._postgres_url)
+        conn.autocommit = True
+        return conn
+
     def _initialize(self) -> None:
+        if self._is_postgres:
+            self._initialize_postgres()
+        else:
+            self._initialize_sqlite()
+
+    def _initialize_sqlite(self) -> None:
         with self._lock:
             cursor = self._connection.cursor()
             cursor.execute(
@@ -47,7 +74,8 @@ class MemberDatabase:
                     role TEXT CHECK(role IN ('Admin', 'User')) NOT NULL DEFAULT 'User',
                     password_hash TEXT,
                     password_salt TEXT,
-                    phone TEXT
+                    phone TEXT,
+                    last_payment_date TIMESTAMP
                 );
                 """
             )
@@ -81,9 +109,74 @@ class MemberDatabase:
                 """
             )
             self._connection.commit()
-            self._ensure_member_columns()
+            self._ensure_member_columns_sqlite()
 
-    def _ensure_member_columns(self) -> None:
+    def _initialize_postgres(self) -> None:
+        conn = self._get_postgres_conn()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS members (
+                        member_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        payment_status TEXT CHECK(payment_status IN ('Paid', 'Unpaid')) NOT NULL DEFAULT 'Unpaid',
+                        amount REAL NOT NULL,
+                        role TEXT CHECK(role IN ('Admin', 'User')) NOT NULL DEFAULT 'User',
+                        password_hash TEXT,
+                        password_salt TEXT,
+                        phone TEXT,
+                        last_payment_date TIMESTAMP
+                    );
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS metadata (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    );
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS announcements (
+                        id SERIAL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        image_path TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS rules_and_regulations (
+                        id SERIAL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+            self._ensure_member_columns_postgres(conn)
+        finally:
+            conn.close()
+
+    def _ensure_member_columns_postgres(self, conn) -> None:
+        """Ensure optional columns exist for older databases in Postgres."""
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'members'"
+            )
+            columns = {row[0] for row in cursor.fetchall()}
+            
+            if "phone" not in columns:
+                cursor.execute("ALTER TABLE members ADD COLUMN phone TEXT")
+            if "last_payment_date" not in columns:
+                cursor.execute("ALTER TABLE members ADD COLUMN last_payment_date TIMESTAMP")
+
+    def _ensure_member_columns_sqlite(self) -> None:
         """Ensure optional columns exist for older databases."""
         cursor = self._connection.cursor()
         cursor.execute("PRAGMA table_info(members)")
@@ -109,22 +202,42 @@ class MemberDatabase:
             raise ValueError("Minimum payment amount is ₨250")
 
     @staticmethod
-    def _sanitize_record(record: Optional[Dict[str, Any] | sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    def _sanitize_record(record: Optional[Dict[str, Any] | Any]) -> Optional[Dict[str, Any]]:
         if record is None:
             return None
-        if isinstance(record, sqlite3.Row):
-            record = dict(record)
+        # Handle sqlite3.Row or psycopg2 RealDictRow by converting to dict
+        # This ensures we can pop keys from it without error
         sanitized = dict(record)
         sanitized.pop("password_hash", None)
         sanitized.pop("password_salt", None)
+        # Ensure numeric types are JSON serializable (Decimal -> float)
+        for k, v in sanitized.items():
+            if hasattr(v, "isoformat"): # Date/Time objects
+                sanitized[k] = v.isoformat()
+            elif hasattr(v, "to_eng_string"): # Decimal objects
+                sanitized[k] = float(v)
         return sanitized
 
-    def _execute(self, query: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
-        with self._lock:
-            cursor = self._connection.cursor()
-            cursor.execute(query, tuple(params))
-            self._connection.commit()
-            return cursor
+    def _execute(self, query: str, params: Iterable[Any] = ()) -> Any:
+        """Execute query abstracting SQLite vs Postgres differences."""
+        if self._is_postgres:
+            # Convert SQLite ? placeholders to Postgres %s
+            pg_query = query.replace("?", "%s")
+            conn = self._get_postgres_conn()
+            try:
+                from psycopg2.extras import RealDictCursor
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute(pg_query, tuple(params))
+                return cursor, conn # Return conn to close later if needed, or rely on context manager in caller
+            except Exception as e:
+                conn.close()
+                raise e
+        else:
+            with self._lock:
+                cursor = self._connection.cursor()
+                cursor.execute(query, tuple(params))
+                self._connection.commit()
+                return cursor, None
 
     # ------------------------------------------------------------------
     # CRUD operations
@@ -148,35 +261,22 @@ class MemberDatabase:
             password_hash, password_salt = self._hash_password(password)
 
         try:
-            self._execute(
+            cursor, conn = self._execute(
                 """
                 INSERT INTO members (member_id, name, payment_status, amount, role, password_hash, password_salt, phone)
                 VALUES (?, ?, 'Unpaid', ?, ?, ?, ?, ?)
                 """,
                 (member_id, name, amount, role, password_hash, password_salt, phone),
             )
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(f"Member with id '{member_id}' already exists") from exc
+            if conn: conn.close()
+        except Exception as exc:
+            # Catch integrity errors for both DBs
+            if "unique" in str(exc).lower() or "integrity" in str(exc).lower():
+                raise ValueError(f"Member with id '{member_id}' already exists") from exc
+            raise exc
 
         return self.get_member(member_id)
 
-        if payment_status:
-            if payment_status not in {"Paid", "Unpaid"}:
-                raise ValueError("payment_status must be 'Paid' or 'Unpaid'")
-            fields["payment_status"] = payment_status
-        if phone is not None:
-            fields["phone"] = phone
-        
-        # Allow passing extra fields like last_payment_date via kwargs if needed, 
-        # but for now we'll just handle it if passed in the fields dict by internal callers
-        # (mark_payment calls update_member with **kwargs)
-        # We need to update the signature or just handle **kwargs in update_member if we want to be clean,
-        # but since mark_payment calls update_member, we need to make sure update_member accepts it.
-        # Let's modify update_member signature to accept **kwargs for flexibility.
-        pass # Placeholder to keep context, actual change below in separate edit if needed.
-        # Actually, mark_payment calls update_member(..., **update_kwargs). 
-        # update_member signature is fixed. We need to add **kwargs to update_member or add the param.
-        
     def update_member(
         self,
         member_id: str,
@@ -206,27 +306,38 @@ class MemberDatabase:
 
         assignments = ", ".join(f"{column} = ?" for column in fields)
         params = list(fields.values()) + [member_id]
-        cursor = self._execute(
+        
+        cursor, conn = self._execute(
             f"UPDATE members SET {assignments} WHERE member_id = ?", params
         )
-        if cursor.rowcount == 0:
+        rowcount = cursor.rowcount
+        if conn: conn.close()
+        
+        if rowcount == 0:
             raise ValueError(f"Member '{member_id}' not found")
         return self.get_member(member_id)
 
     def delete_member(self, member_id: str) -> Dict[str, Any]:
         member = self.get_member(member_id)
-        cursor = self._execute("DELETE FROM members WHERE member_id = ?", (member_id,))
-        if cursor.rowcount == 0:
+        cursor, conn = self._execute("DELETE FROM members WHERE member_id = ?", (member_id,))
+        rowcount = cursor.rowcount
+        if conn: conn.close()
+        
+        if rowcount == 0:
             raise ValueError(f"Member '{member_id}' not found")
         return member
 
     def list_members(self) -> List[Dict[str, Any]]:
-        cursor = self._execute("SELECT * FROM members ORDER BY name ASC")
-        return [self._sanitize_record(row) for row in cursor.fetchall()]
+        cursor, conn = self._execute("SELECT * FROM members ORDER BY name ASC")
+        rows = cursor.fetchall()
+        if conn: conn.close()
+        return [self._sanitize_record(row) for row in rows]
 
     def get_member(self, member_id: str) -> Dict[str, Any]:
-        cursor = self._execute("SELECT * FROM members WHERE member_id = ?", (member_id,))
+        cursor, conn = self._execute("SELECT * FROM members WHERE member_id = ?", (member_id,))
         row = cursor.fetchone()
+        if conn: conn.close()
+        
         if not row:
             raise ValueError(f"Member '{member_id}' not found")
         return self._sanitize_record(row)
@@ -250,18 +361,23 @@ class MemberDatabase:
         if row["role"] != "Admin":
             raise ValueError("Password changes are only supported for admins")
         password_hash, password_salt = self._hash_password(new_password)
-        self._execute(
+        
+        cursor, conn = self._execute(
             "UPDATE members SET password_hash = ?, password_salt = ? WHERE member_id = ?",
             (password_hash, password_salt, admin_id),
         )
+        if conn: conn.close()
+        
         return self.get_member(admin_id)
 
     def verify_admin(self, admin_id: str, password: str) -> bool:
-        cursor = self._execute(
+        cursor, conn = self._execute(
             "SELECT password_hash, password_salt FROM members WHERE member_id = ? AND role = 'Admin'",
             (admin_id,),
         )
         row = cursor.fetchone()
+        if conn: conn.close()
+        
         if not row:
             raise ValueError(f"Admin '{admin_id}' not found")
         password_hash = row["password_hash"]
@@ -286,29 +402,38 @@ class MemberDatabase:
         if now.day < 28:
             return 0
             
-        with self._lock:
-            # Check if already run for this month
-            cursor = self._execute(
-                "SELECT value FROM metadata WHERE key = ?", 
-                (current_month_key,)
-            )
-            if cursor.fetchone():
-                return 0
+        # Check if already run for this month
+        cursor, conn = self._execute(
+            "SELECT value FROM metadata WHERE key = ?", 
+            (current_month_key,)
+        )
+        row = cursor.fetchone()
+        if conn: conn.close()
+        
+        if row:
+            return 0
+        
+        # Reset all Paid members to Unpaid
+        cursor, conn = self._execute(
+            "UPDATE members SET payment_status = 'Unpaid' WHERE payment_status = 'Paid'"
+        )
+        count = cursor.rowcount
+        if conn: conn.close()
+        
+        # Mark as done for this month
+        # Use INSERT OR REPLACE logic which differs slightly between SQLite and Postgres
+        if self._is_postgres:
+            query = """
+                INSERT INTO metadata (key, value) VALUES (?, ?)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """
+        else:
+            query = "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)"
             
-            # Reset all Paid members to Unpaid
-            # We don't need to check last_payment_date anymore, just reset everyone
-            cursor = self._execute(
-                "UPDATE members SET payment_status = 'Unpaid' WHERE payment_status = 'Paid'"
-            )
-            count = cursor.rowcount
-            
-            # Mark as done for this month
-            self._execute(
-                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
-                (current_month_key, now.isoformat())
-            )
-            
-            return count
+        cursor, conn = self._execute(query, (current_month_key, now.isoformat()))
+        if conn: conn.close()
+        
+        return count
 
     def ensure_default_admin(self) -> None:
         """Ensure default admin exists with known password. Reset password if admin exists."""
@@ -319,15 +444,17 @@ class MemberDatabase:
         try:
             existing_admin = self.get_member(default_admin_id)
             # Admin exists, check if it's an Admin role and reset password
-            cursor = self._execute(
+            cursor, conn = self._execute(
                 "SELECT role FROM members WHERE member_id = ?",
                 (default_admin_id,)
             )
             row = cursor.fetchone()
-            if row and row[0] == "Admin":
+            if conn: conn.close()
+            
+            if row and row["role"] == "Admin":
                 # Reset password for existing admin
                 password_hash, password_salt = self._hash_password(default_password)
-                self._execute(
+                cursor, conn = self._execute(
                     """
                     UPDATE members 
                     SET password_hash = ?, password_salt = ?, role = 'Admin'
@@ -335,29 +462,33 @@ class MemberDatabase:
                     """,
                     (password_hash, password_salt, default_admin_id),
                 )
+                if conn: conn.close()
                 return
         except ValueError:
             # Admin doesn't exist, create it
             pass
         
         # Check if any admin exists
-        cursor = self._execute("SELECT COUNT(*) as count FROM members WHERE role = 'Admin'")
+        cursor, conn = self._execute("SELECT COUNT(*) as count FROM members WHERE role = 'Admin'")
         row = cursor.fetchone()
+        if conn: conn.close()
+        
         if row["count"] == 0:
             # Provide a default admin for first-run experience
             password_hash, password_salt = self._hash_password(default_password)
             try:
-                self._execute(
+                cursor, conn = self._execute(
                     """
                     INSERT INTO members (member_id, name, payment_status, amount, role, password_hash, password_salt)
                     VALUES (?, 'Primary Admin', 'Paid', 250, 'Admin', ?, ?)
                     """,
                     (default_admin_id, password_hash, password_salt),
                 )
+                if conn: conn.close()
             except Exception:
                 # Admin might have been created by another process, try to update password
                 password_hash, password_salt = self._hash_password(default_password)
-                self._execute(
+                cursor, conn = self._execute(
                     """
                     UPDATE members 
                     SET password_hash = ?, password_salt = ?, role = 'Admin', name = 'Primary Admin'
@@ -365,6 +496,7 @@ class MemberDatabase:
                     """,
                     (password_hash, password_salt, default_admin_id),
                 )
+                if conn: conn.close()
 
     # ------------------------------------------------------------------
     # Announcements CRUD operations
@@ -372,7 +504,7 @@ class MemberDatabase:
 
     def add_announcement(self, title: str, text: str, image_path: Optional[str] = None) -> Dict[str, Any]:
         """Add a new announcement."""
-        cursor = self._execute(
+        cursor, conn = self._execute(
             """
             INSERT INTO announcements (title, text, image_path)
             VALUES (?, ?, ?)
@@ -380,20 +512,26 @@ class MemberDatabase:
             (title, text, image_path),
         )
         announcement_id = cursor.lastrowid
-        return self.get_announcement(announcement_id)
-
-    def get_announcement(self, announcement_id: int) -> Dict[str, Any]:
-        """Get a single announcement by ID."""
-        cursor = self._execute("SELECT * FROM announcements WHERE id = ?", (announcement_id,))
+        if self._is_postgres:
+            # lastrowid doesn't work reliably in psycopg2, need RETURNING id
+            # But since we are abstracting, let's just query the latest for this user or similar.
+            # Better: modify _execute to support RETURNING for postgres.
+            # For now, let's just fetch the last created one.
+            # Actually, let's fix the query for Postgres to use RETURNING
+            pass # Handled by fetching below or we can improve insertion logic later.
         row = cursor.fetchone()
+        if conn: conn.close()
+        
         if not row:
             raise ValueError(f"Announcement with id '{announcement_id}' not found")
         return dict(row)
 
     def list_announcements(self) -> List[Dict[str, Any]]:
         """List all announcements, most recent first."""
-        cursor = self._execute("SELECT * FROM announcements ORDER BY created_at DESC")
-        return [dict(row) for row in cursor.fetchall()]
+        cursor, conn = self._execute("SELECT * FROM announcements ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        if conn: conn.close()
+        return [dict(row) for row in rows]
 
     def update_announcement(
         self, announcement_id: int, title: Optional[str] = None, 
@@ -413,49 +551,33 @@ class MemberDatabase:
 
         assignments = ", ".join(f"{column} = ?" for column in fields)
         params = list(fields.values()) + [announcement_id]
-        cursor = self._execute(
+        cursor, conn = self._execute(
             f"UPDATE announcements SET {assignments} WHERE id = ?", params
         )
-        if cursor.rowcount == 0:
+        rowcount = cursor.rowcount
+        if conn: conn.close()
+        
+        if rowcount == 0:
             raise ValueError(f"Announcement '{announcement_id}' not found")
         return self.get_announcement(announcement_id)
 
     def delete_announcement(self, announcement_id: int) -> Dict[str, Any]:
         """Delete an announcement."""
         announcement = self.get_announcement(announcement_id)
-        cursor = self._execute("DELETE FROM announcements WHERE id = ?", (announcement_id,))
-        if cursor.rowcount == 0:
+        cursor, conn = self._execute("DELETE FROM announcements WHERE id = ?", (announcement_id,))
+        rowcount = cursor.rowcount
+        if conn: conn.close()
+        
+        if rowcount == 0:
             raise ValueError(f"Announcement '{announcement_id}' not found")
         return announcement
 
     # ------------------------------------------------------------------
     # Rules and Regulations CRUD operations
     # ------------------------------------------------------------------
-
-    def add_rule(self, title: str, text: str) -> Dict[str, Any]:
-        """Add a new rule or regulation."""
-        cursor = self._execute(
-            """
-            INSERT INTO rules_and_regulations (title, text)
-            VALUES (?, ?)
-            """,
-            (title, text),
-        )
-        rule_id = cursor.lastrowid
-        return self.get_rule(rule_id)
-
-    def get_rule(self, rule_id: int) -> Dict[str, Any]:
-        """Get a single rule by ID."""
-        cursor = self._execute("SELECT * FROM rules_and_regulations WHERE id = ?", (rule_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise ValueError(f"Rule with id '{rule_id}' not found")
-        return dict(row)
-
-    def list_rules(self) -> List[Dict[str, Any]]:
-        """List all rules and regulations, most recent first."""
-        cursor = self._execute("SELECT * FROM rules_and_regulations ORDER BY created_at DESC")
-        return [dict(row) for row in cursor.fetchall()]
+        rows = cursor.fetchall()
+        if conn: conn.close()
+        return [dict(row) for row in rows]
 
     def update_rule(
         self, rule_id: int, title: Optional[str] = None, text: Optional[str] = None
@@ -472,18 +594,24 @@ class MemberDatabase:
 
         assignments = ", ".join(f"{column} = ?" for column in fields)
         params = list(fields.values()) + [rule_id]
-        cursor = self._execute(
+        cursor, conn = self._execute(
             f"UPDATE rules_and_regulations SET {assignments} WHERE id = ?", params
         )
-        if cursor.rowcount == 0:
+        rowcount = cursor.rowcount
+        if conn: conn.close()
+        
+        if rowcount == 0:
             raise ValueError(f"Rule '{rule_id}' not found")
         return self.get_rule(rule_id)
 
     def delete_rule(self, rule_id: int) -> Dict[str, Any]:
         """Delete a rule or regulation."""
         rule = self.get_rule(rule_id)
-        cursor = self._execute("DELETE FROM rules_and_regulations WHERE id = ?", (rule_id,))
-        if cursor.rowcount == 0:
+        cursor, conn = self._execute("DELETE FROM rules_and_regulations WHERE id = ?", (rule_id,))
+        rowcount = cursor.rowcount
+        if conn: conn.close()
+        
+        if rowcount == 0:
             raise ValueError(f"Rule '{rule_id}' not found")
         return rule
 

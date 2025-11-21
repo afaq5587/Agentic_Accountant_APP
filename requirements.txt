@@ -7,3 +7,5 @@ pydantic
 python-dotenv
 tavily-python
 jinja2
+psycopg2-binary
+vercel-blob

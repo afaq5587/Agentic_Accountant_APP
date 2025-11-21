@@ -186,8 +186,27 @@ def create_app(agent_bundle: Dict[str, Any]) -> FastAPI:
     app = FastAPI(title="SHAHENSHA GROUP' ACCOUNTANT", version="1.0.0")
     
     # Setup uploads directory for announcement images
-    uploads_dir = Path("uploads")
-    uploads_dir.mkdir(exist_ok=True)
+    # On Vercel, the root is read-only, so we use /tmp
+    if os.environ.get("VERCEL"):
+        uploads_dir = Path("/tmp/uploads")
+    else:
+        uploads_dir = Path("uploads")
+    
+    try:
+        if not os.environ.get("VERCEL"):
+            uploads_dir.mkdir(exist_ok=True)
+            # Test write permissions
+            test_file = uploads_dir / ".write_test"
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.unlink(test_file)
+    except (OSError, IOError):
+        # Fallback to /tmp for serverless environments
+        uploads_dir = Path("/tmp/uploads")
+    
+    # Always ensure the chosen directory exists (especially for /tmp)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+        
     app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
     
     # Setup static files
@@ -358,6 +377,10 @@ def create_app(agent_bundle: Dict[str, Any]) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            # Catch database or other unexpected errors
+            print(f"Error marking payment: {exc}")
+            raise HTTPException(status_code=500, detail=f"Internal error: {str(exc)}") from exc
 
         return JSONResponse(
             {
@@ -366,6 +389,27 @@ def create_app(agent_bundle: Dict[str, Any]) -> FastAPI:
                 "message": f"Payment status updated to {payload.payment_status}.",
             }
         )
+
+    @app.get("/api/cron/reset-payments")
+    async def cron_reset_payments(
+        db_service: MemberDatabase = Depends(get_db),
+    ) -> JSONResponse:
+        """
+        Cron job endpoint to reset monthly payments.
+        This should be called daily by Vercel Cron.
+        """
+        try:
+            count = db_service.check_and_reset_monthly_payments()
+            return JSONResponse({
+                "status": "success", 
+                "message": f"Payment reset check completed. Reset {count} members.",
+                "reset_count": count
+            })
+        except Exception as exc:
+            return JSONResponse(
+                {"status": "error", "message": str(exc)}, 
+                status_code=500
+            )
 
     @app.post("/api/admin/password")
     async def admin_change_password(
@@ -416,6 +460,25 @@ def create_app(agent_bundle: Dict[str, Any]) -> FastAPI:
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="File must be an image")
         
+        # Check if we should use Vercel Blob
+        if os.environ.get("BLOB_READ_WRITE_TOKEN"):
+            try:
+                import vercel_blob
+                # Read file content
+                content = await file.read()
+                # Upload to Vercel Blob
+                resp = vercel_blob.put(file.filename, content, options={"access": "public"})
+                return JSONResponse({
+                    "status": "success",
+                    "image_path": resp["url"],
+                    "message": "Image uploaded successfully to Vercel Blob."
+                })
+            except ImportError:
+                print("WARNING: vercel_blob not installed but BLOB_READ_WRITE_TOKEN is set.")
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to upload to Vercel Blob: {str(exc)}") from exc
+
+        # Fallback to local/tmp storage
         # Generate unique filename
         file_extension = Path(file.filename).suffix if file.filename else ".jpg"
         unique_filename = f"{uuid.uuid4()}{file_extension}"

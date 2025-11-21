@@ -256,9 +256,9 @@
 
                 <!-- Announcements Section -->
                 <section id="announcements-section" class="hidden animate-fade-in space-y-6">
-                    <div class="flex items-center justify-between">
+                    <div class="flex flex-wrap items-center justify-between gap-4">
                         <h2 class="text-xl font-bold text-white">Announcements</h2>
-                        <button id="open-add-announcement" class="hidden btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide">New Announcement</button>
+                        <button id="open-add-announcement" class="hidden btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide whitespace-nowrap">New Announcement</button>
                     </div>
                     <div id="announcements-list" class="space-y-6">
                         <!-- Announcements Injected Here -->
@@ -273,9 +273,9 @@
 
                 <!-- Rules Section -->
                 <section id="rules-section" class="hidden animate-fade-in space-y-6">
-                    <div class="flex items-center justify-between">
+                    <div class="flex flex-wrap items-center justify-between gap-4">
                         <h2 class="text-xl font-bold text-white">Rules & Regulations</h2>
-                        <button id="open-add-rule" class="hidden btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide">New Rule</button>
+                        <button id="open-add-rule" class="hidden btn-primary px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide whitespace-nowrap">New Rule</button>
                     </div>
                     <div id="rules-list" class="space-y-4">
                         <!-- Rules Injected Here -->
@@ -316,7 +316,7 @@
     <!-- Modals -->
     <!-- Add Member Modal -->
     <div id="add-member-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-        <div class="glass-panel w-full max-w-lg rounded-2xl p-6 space-y-6 animate-fade-in">
+        <div class="glass-panel w-full max-w-lg rounded-2xl p-6 space-y-6 animate-fade-in max-h-[90vh] overflow-y-auto">
             <div class="flex items-center justify-between">
                 <h3 class="text-xl font-bold text-white" id="member-modal-title">Add Member</h3>
                 <button id="close-add-member" class="text-slate-400 hover:text-white transition-colors">
@@ -398,7 +398,7 @@
 
     <!-- Add Rule Modal -->
     <div id="add-rule-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-        <div class="glass-panel w-full max-w-xl rounded-2xl p-6 space-y-6 animate-fade-in">
+        <div class="glass-panel w-full max-w-xl rounded-2xl p-6 space-y-6 animate-fade-in max-h-[90vh] overflow-y-auto">
             <div class="flex items-center justify-between">
                 <h3 class="text-xl font-bold text-white" id="rule-modal-title">New Rule</h3>
                 <button id="close-add-rule" class="text-slate-400 hover:text-white transition-colors">

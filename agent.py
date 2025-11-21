@@ -385,6 +385,9 @@ async def {tool_name}({sig_str}) -> str:
             }
 
         except Exception as e:
+            print(f"Agent Error: {e}") # Add logging
+            import traceback
+            traceback.print_exc() # Print stack trace to logs
             error_msg = f"Error processing request: {str(e)}"
             self._memory.append({
                 "role": "assistant",
@@ -411,7 +414,23 @@ def create_agent() -> Dict[str, Any]:
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     api_key = os.getenv("GEMINI_API_KEY", "")
-    storage_path = os.getenv("SGA_DB_PATH", os.path.join("data", "members.db"))
+    # Determine default DB path based on environment
+    if os.environ.get("VERCEL"):
+        default_db_path = "/tmp/members.db"
+    else:
+        default_db_path = os.path.join("data", "members.db")
+        # Check if we can write to the data directory
+        try:
+            os.makedirs("data", exist_ok=True)
+            # Test write permissions
+            test_file = os.path.join("data", ".write_test")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+        except (OSError, IOError):
+            default_db_path = "/tmp/members.db"
+        
+    storage_path = os.getenv("SGA_DB_PATH", default_db_path)
 
     if not api_key:
         raise ValueError("GEMINI_API_KEY is not set. Please ensure it is defined in your .env file.")
